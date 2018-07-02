@@ -16,7 +16,7 @@ const minRetryDelay = 1 * time.Second
 
 const istioPilotV1Registration = "http://istio-pilot.istio-system.svc.cluster.local:8080/v1/registration"
 
-// WaitForIstioSidecar awaits starting up Istio sidecar proxy (a.k.a istio-proxy) in the same Pod (or in the local host)
+// WaitForIstioSidecar awaits starting up Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
 // until time's up.
 func WaitForIstioSidecar(timeout time.Duration) ([]byte, error) {
 	return WaitForIstioPilot(timeout)
@@ -75,14 +75,16 @@ func WaitForIstioPilot(timeout time.Duration) ([]byte, error) {
 	}
 }
 
-func KillEnvoy(envoyAddress string) error {
-	const urlKill = `http://%s/quitquitquit`
-	res, err := http.Get(fmt.Sprintf(urlKill, envoyAddress))
+// KillIstioSidecar kills Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
+func KillIstioSidecar() error {
+	const killingURL = "http://localhost:15000/quitquitquit"
+	res, err := http.Get(killingURL)
 	if err != nil {
 		return err
 	}
 	if res.StatusCode != 200 {
 		return fmt.Errorf("%s", res.Status)
 	}
+	// TODO: check and kill leftover epochs
 	return nil
 }
