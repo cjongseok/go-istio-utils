@@ -4,11 +4,12 @@ Istio utils in Go
 
 Utils
 ---
-### WaitForIstioSidecar(timeout)
+### WaitForSidecarProxy(timeout)
 It waits for starting up Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host) until time's up.
 
-### WaitForIstioPilot(timeout)
+### WaitForPilot(timeout)
 It waits for reaching to Istio Pilot (istio-pilot) in another pod until time's up.
 
-### KillIstioSidecar()
-It kills Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
+### KillSidecarProxy(timeout)
+It kills Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host).
+It gives up the killing when time's up.

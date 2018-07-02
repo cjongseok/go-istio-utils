@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-	"io/ioutil"
 )
 
 // normalRetryDelay is a desired delay among HTTP requests to the same API
@@ -14,77 +13,72 @@ const normalRetryDelay = 3 * time.Second
 // minRetryDelay is a min delay among HTTP requests to the same API
 const minRetryDelay = 1 * time.Second
 
-const istioPilotV1Registration = "http://istio-pilot.istio-system.svc.cluster.local:8080/v1/registration"
+// Istio URLs
+const (
+	localEnvoyURL          = "http://localhost:15000"
+	killLocalEnvoyURL      = localEnvoyURL + "/quitquitquit"
+	pilotURL               = "http://istio-pilot.istio-system.svc.cluster.local:8080"
+	pilotV1RegistrationURL = pilotURL + "/v1/registration"
+)
 
-// WaitForIstioSidecar awaits starting up Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
+// WaitForSidecarProxy awaits starting up Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
 // until time's up.
-func WaitForIstioSidecar(timeout time.Duration) ([]byte, error) {
-	return WaitForIstioPilot(timeout)
+func WaitForSidecarProxy(timeout time.Duration) error {
+	return httpGetUntil200(localEnvoyURL, timeout)
 }
 
-func getPilotRegistration(timeout time.Duration) ([]byte, error) {
-	req, err := http.NewRequest("GET", istioPilotV1Registration, nil)
+// WaitForPilot awaits reaching to Istio Pilot (istio-pilot) in another pod until time's up
+func WaitForPilot(timeout time.Duration) error {
+	return httpGetUntil200(pilotV1RegistrationURL, timeout)
+}
+
+// KillSidecarProxy kills Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
+func KillSidecarProxy(timeout time.Duration) error {
+	return httpGetUntil200(killLocalEnvoyURL, timeout)
+}
+
+func httpGetWithTimeout(url string, timeout time.Duration) (res *http.Response, err error) {
+	var req *http.Request
+	req, err = http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 
 	client := http.DefaultClient
-	res, err := client.Do(req.WithContext(ctx))
-	if err != nil {
-		return nil, err
-	}
-
-	defer res.Body.Close()
-	bytes, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, nil
-	}
-	return bytes, nil
+	res, err = client.Do(req.WithContext(ctx))
+	return
 }
 
-// WaitForIstioPilot awaits reaching to Istio Pilot (istio-pilot) in another pod until time's up
-func WaitForIstioPilot(timeout time.Duration) ([]byte, error) {
+func httpGetUntil200(url string, timeout time.Duration) (err error) {
+	var res *http.Response
 	deadline := time.Now().Add(timeout)
-	var err error
-	var svcs []byte
 	for {
 		now := time.Now()
 		if now.Before(deadline) {
-			svcs, err = getPilotRegistration(deadline.Sub(now))
+			res, err = httpGetWithTimeout(url, timeout)
 		} else { // time's up
 			if err == nil {
-				return nil, fmt.Errorf("too short timeout")
+				if res == nil {
+					err = fmt.Errorf("timeout")
+				} else {
+					err = fmt.Errorf("timeout; last status code = %d", res.StatusCode)
+				}
 			}
-			return nil, err
+			return
 		}
 
 		// delay the next try
-		if err != nil {
-			remain := deadline.Sub(time.Now())
-			if remain > normalRetryDelay {
-				time.Sleep(normalRetryDelay)
-			} else if remain > minRetryDelay {
-				time.Sleep(minRetryDelay)
-			}
-		} else {
-			return svcs, nil // success
+		if err == nil && res != nil && res.StatusCode == http.StatusOK {
+			return
+		}
+		remain := deadline.Sub(time.Now())
+		if remain > normalRetryDelay {
+			time.Sleep(normalRetryDelay)
+		} else if remain > minRetryDelay {
+			time.Sleep(minRetryDelay)
 		}
 	}
-}
-
-// KillIstioSidecar kills Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
-func KillIstioSidecar() error {
-	const killingURL = "http://localhost:15000/quitquitquit"
-	res, err := http.Get(killingURL)
-	if err != nil {
-		return err
-	}
-	if res.StatusCode != 200 {
-		return fmt.Errorf("%s", res.Status)
-	}
-	// TODO: check and kill leftover epochs
-	return nil
 }
