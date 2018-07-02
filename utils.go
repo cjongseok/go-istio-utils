@@ -8,6 +8,12 @@ import (
 	"io"
 )
 
+// maxLocalHttpTimeout is the max timeout for HTTP request inside pod
+const maxLocalHttpTimeout = 3 * time.Second
+
+// maxClusterHttpTimeout is the max timeout of HTTP request inside cluster
+const maxCluterHttpTimeout = 7 * time.Second
+
 // normalRetryDelay is a desired delay among HTTP requests to the same API
 const normalRetryDelay = 3 * time.Second
 
@@ -32,17 +38,17 @@ func SetLogging(writer io.Writer) {
 // WaitForSidecarProxy awaits starting up Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
 // until time's up.
 func WaitForSidecarProxy(timeout time.Duration) error {
-	return httpGetUntil200(localEnvoyURL, timeout)
+	return httpGetUntil200(localEnvoyURL, timeout, maxLocalHttpTimeout)
 }
 
 // WaitForPilot awaits reaching to Istio Pilot (istio-pilot) in another pod until time's up
 func WaitForPilot(timeout time.Duration) error {
-	return httpGetUntil200(pilotV1RegistrationURL, timeout)
+	return httpGetUntil200(pilotV1RegistrationURL, timeout, maxCluterHttpTimeout)
 }
 
 // KillSidecarProxy kills Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
 func KillSidecarProxy(timeout time.Duration) error {
-	return httpGetUntil200(killLocalEnvoyURL, timeout)
+	return httpGetUntil200(killLocalEnvoyURL, timeout, maxLocalHttpTimeout)
 }
 
 func httpGetWithTimeout(url string, timeout time.Duration) (res *http.Response, err error) {
@@ -60,14 +66,21 @@ func httpGetWithTimeout(url string, timeout time.Duration) (res *http.Response, 
 	return
 }
 
-func httpGetUntil200(url string, timeout time.Duration) (err error) {
+func minDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return b
+	}
+	return a
+}
+
+func httpGetUntil200(url string, timeout time.Duration, maxHttpTimeout time.Duration) (err error) {
 	var res *http.Response
 	deadline := time.Now().Add(timeout)
 	fastFail := false
 	for {
 		now := time.Now()
 		if !fastFail && now.Before(deadline) {
-			res, err = httpGetWithTimeout(url, timeout)
+			res, err = httpGetWithTimeout(url, minDuration(deadline.Sub(now), maxHttpTimeout))
 		} else { // time's up
 			if err == nil {
 				if res == nil {
