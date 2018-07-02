@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+	"io"
 )
 
 // normalRetryDelay is a desired delay among HTTP requests to the same API
@@ -20,6 +21,13 @@ const (
 	pilotURL               = "http://istio-pilot.istio-system.svc.cluster.local:8080"
 	pilotV1RegistrationURL = pilotURL + "/v1/registration"
 )
+
+var logWriter io.Writer
+
+// SetLogging sets up log writer
+func SetLogging(writer io.Writer) {
+	logWriter = writer
+}
 
 // WaitForSidecarProxy awaits starting up Istio sidecar proxy (a.k.a envoy or istio-proxy) in the same Pod (or in the local host)
 // until time's up.
@@ -55,9 +63,10 @@ func httpGetWithTimeout(url string, timeout time.Duration) (res *http.Response, 
 func httpGetUntil200(url string, timeout time.Duration) (err error) {
 	var res *http.Response
 	deadline := time.Now().Add(timeout)
+	fastFail := false
 	for {
 		now := time.Now()
-		if now.Before(deadline) {
+		if !fastFail && now.Before(deadline) {
 			res, err = httpGetWithTimeout(url, timeout)
 		} else { // time's up
 			if err == nil {
@@ -74,11 +83,23 @@ func httpGetUntil200(url string, timeout time.Duration) (err error) {
 		if err == nil && res != nil && res.StatusCode == http.StatusOK {
 			return
 		}
+		if logWriter != nil {
+			fmt.Fprintf(logWriter, "http Get %s failure", url)
+			if res != nil {
+				fmt.Fprintf(logWriter, "; %s", res.Status)
+			}
+			if err != nil{
+				fmt.Fprintf(logWriter, "; %v", err)
+			}
+			fmt.Fprint(logWriter, "\n")
+		}
 		remain := deadline.Sub(time.Now())
 		if remain > normalRetryDelay {
 			time.Sleep(normalRetryDelay)
 		} else if remain > minRetryDelay {
 			time.Sleep(minRetryDelay)
+		} else {
+			fastFail = true
 		}
 	}
 }
